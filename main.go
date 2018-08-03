@@ -3,10 +3,12 @@ package main
 import (
 	"encoding/json"
 	"flag"
+	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"strconv"
+	"time"
 )
 
 var login = ""
@@ -45,6 +47,25 @@ type pet struct {
 	ActivityAim int     `json:"activityAim"`
 }
 
+type locations struct {
+	BoundDataID int            `json:"boundDataId"`
+	SosModeTime int            `json:"sosModeTime"`
+	Pets        []locationsPet `json:"pets"`
+}
+
+type locationsPet struct {
+	ID            int     `json:"id"`
+	DeviceID      int     `json:"deviceId"`
+	Accuracy      float64 `json:"accuracy"`
+	BatteryCharge int     `json:"batteryCharge"`
+	Alt           float64 `json:"alt"`
+	Lat           float64 `json:"lat"`
+	Lon           float64 `json:"lon"`
+	Date          int64   `json:"date"`
+	DeviceStatus  string  `json:"deviceStatus"`
+	SosModeTime   int     `json:"sosModeTime"`
+}
+
 func main() {
 	flag.StringVar(&login, "login", "", "Mishiko login/email")
 	flag.StringVar(&password, "password", "", "Mishiko password")
@@ -63,7 +84,17 @@ func main() {
 				for index := range pets {
 					petData := pets[index]
 					petActivity := getActivity(petData.ID, false)
-					log.Println(petActivity.PetID, petActivity.CurrentEnergy, petActivity.CurrentActivity, petActivity.CurrentDistance)
+
+					w.Write([]byte(fmt.Sprintf("PetID: %d\nSteps: %d\nActivity: %d/%d\nDistance: %.3fm\nBattery: %d%%", petActivity.PetID, petActivity.CurrentEnergy, petActivity.CurrentActivity, petActivity.PetActivityAim, float64(petActivity.CurrentDistance)/1000, petActivity.BatteryCharge)))
+				}
+			}
+
+			petsLocation := getPetsLocations(false)
+			if len(petsLocation.Pets) > 0 {
+				for index := range petsLocation.Pets {
+					petData := petsLocation.Pets[index]
+
+					w.Write([]byte(fmt.Sprintf("\nPetID: %d\nLat: %.6f\nLon: %.6f\nAlt: %.2f\nAccuracy: %.2f\nDate: %s\nSos: %d", petData.ID, petData.Lat, petData.Lon, petData.Alt, petData.Accuracy, time.Unix(petData.Date/1000, 0), petData.SosModeTime)))
 				}
 			}
 		})
@@ -181,6 +212,52 @@ func getActivity(petID int, reauth bool) (activityData activity) {
 
 	body, _ := ioutil.ReadAll(resp.Body)
 	err = json.Unmarshal(body, &activityData)
+	if err != nil {
+		log.Println(err, string(body))
+	}
+	return
+}
+
+func getPetsLocations(reauth bool) (locations locations) {
+	if token == "" {
+		authtoken, err := doAuth("", "")
+		if err != nil || authtoken == "" {
+			log.Println(err)
+			return
+		} else {
+			log.Println("got token", authtoken)
+		}
+	} else {
+		// log.Println
+	}
+	client := &http.Client{}
+	req, _ := http.NewRequest("GET", "https://api2.mishiko.intech-global.com/devpet/locations", nil)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-SPOTTY-AUTH-NEW", "X-SPOTTY-AUTH-NEW")
+	req.Header.Set("X-SPOTTY-ACCESS-TOKEN", token)
+	resp, err := client.Do(req)
+	defer resp.Body.Close()
+
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	if resp.StatusCode == 401 {
+		if reauth {
+			return
+		}
+
+		token, err = doAuth(login, password)
+		if err != nil || token == "" {
+			log.Println(err)
+			return
+		}
+
+		return getPetsLocations(true)
+	}
+
+	body, _ := ioutil.ReadAll(resp.Body)
+	err = json.Unmarshal(body, &locations)
 	if err != nil {
 		log.Println(err, string(body))
 	}
