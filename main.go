@@ -1,265 +1,125 @@
 package main
 
 import (
-	"encoding/json"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"log"
-	"net/http"
-	"strconv"
 	"time"
+
+	tgbotapi "gopkg.in/telegram-bot-api.v4"
 )
 
-var login = ""
-var password = ""
-var token = ""
+var (
+	// admins        []string
+	telegramToken string
 
-type auth struct {
-	Email           string `json:"email"`
-	ID              int    `json:"id"`
-	LastAppActivity string `json:"lastAppActivity"`
-	LastKnownArea   string `json:"lastKnownArea"`
-	Name            string `json:"name"`
-}
+	login    string
+	password string
+	token    string
 
-type activity struct {
-	PetActivityAim   int    `json:"petActivityAim"`
-	PetAvatarPath    string `json:"petAvatarPath"`
-	BatteryCharge    int    `json:"batteryCharge"`
-	SubscriptionDate string `json:"subscriptionDate"`
-	CurrentEnergy    int    `json:"currentEnergy"`
-	CurrentActivity  int    `json:"currentActivity"`
-	CurrentDistance  int    `json:"currentDistance"`
-	UpdateDate       string `json:"updateDate"`
-	DeviceStatus     string `json:"deviceStatus"`
-	LightStatus      bool   `json:"lightStatus"`
-	PetID            int    `json:"petId"`
-	SignalLevel      string `json:"signalLevel"`
-}
+	timezone int
 
-type pet struct {
-	ID          int     `json:"id"`
-	Name        string  `json:"name"`
-	Birthday    int     `json:"birthday"`
-	Weight      float32 `json:"weight"`
-	Height      float32 `json:"height"`
-	ActivityAim int     `json:"activityAim"`
-}
-
-type locations struct {
-	BoundDataID int            `json:"boundDataId"`
-	SosModeTime int            `json:"sosModeTime"`
-	Pets        []locationsPet `json:"pets"`
-}
-
-type locationsPet struct {
-	ID            int     `json:"id"`
-	DeviceID      int     `json:"deviceId"`
-	Accuracy      float64 `json:"accuracy"`
-	BatteryCharge int     `json:"batteryCharge"`
-	Alt           float64 `json:"alt"`
-	Lat           float64 `json:"lat"`
-	Lon           float64 `json:"lon"`
-	Date          int64   `json:"date"`
-	DeviceStatus  string  `json:"deviceStatus"`
-	SosModeTime   int     `json:"sosModeTime"`
-}
+	commandKeyboard tgbotapi.ReplyKeyboardMarkup
+)
 
 func main() {
 	flag.StringVar(&login, "login", "", "Mishiko login/email")
 	flag.StringVar(&password, "password", "", "Mishiko password")
 	flag.StringVar(&token, "token", "", "Mishiko token")
+	flag.StringVar(&telegramToken, "telegram", "", "Telegram token")
+	flag.IntVar(&timezone, "timezone", 3, "timezone")
 
 	flag.Parse()
 
 	if token == "" && login == "" && password == "" {
 		log.Println("You should provide token or login/password to start")
 	} else {
-		http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-			defer r.Body.Close()
+		bot, err := tgbotapi.NewBotAPI(telegramToken)
+		if err != nil {
+			log.Panic(err)
+		}
 
-			pets := getPets(false)
-			if len(pets) > 0 {
-				for index := range pets {
-					petData := pets[index]
-					petActivity := getActivity(petData.ID, false)
+		bot.Debug = false
+		log.Printf("Authorized on account %s", bot.Self.UserName)
 
-					w.Write([]byte(fmt.Sprintf("PetID: %d\nSteps: %d\nActivity: %d/%d\nDistance: %.3fm\nBattery: %d%%", petActivity.PetID, petActivity.CurrentEnergy, petActivity.CurrentActivity, petActivity.PetActivityAim, float64(petActivity.CurrentDistance)/1000, petActivity.BatteryCharge)))
-				}
-			}
+		var ucfg = tgbotapi.NewUpdate(0)
+		ucfg.Timeout = 60
 
-			petsLocation := getPetsLocations(false)
-			if len(petsLocation.Pets) > 0 {
-				for index := range petsLocation.Pets {
-					petData := petsLocation.Pets[index]
-
-					w.Write([]byte(fmt.Sprintf("\nPetID: %d\nLat: %.6f\nLon: %.6f\nAlt: %.2f\nAccuracy: %.2f\nDate: %s\nSos: %d", petData.ID, petData.Lat, petData.Lon, petData.Alt, petData.Accuracy, time.Unix(petData.Date/1000, 0), petData.SosModeTime)))
-				}
-			}
-		})
-
-		http.ListenAndServe(":8081", nil)
-	}
-}
-
-func doAuth(login string, password string) (authtoken string, err error) {
-	if login != "" && password != "" {
-		client := &http.Client{}
-		req, _ := http.NewRequest("GET", "https://api2.mishiko.intech-global.com/profile/auth?email="+login+"&pass="+password+"&type=IOS", nil)
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("X-SPOTTY-AUTH-NEW", "X-SPOTTY-AUTH-NEW")
-		resp, err := client.Do(req)
-		defer resp.Body.Close()
+		updates, err := bot.GetUpdatesChan(ucfg)
 
 		if err != nil {
-			return "", err
+			log.Fatalf("[INIT] [Failed to init Telegram updates chan: %v]", err)
 		}
 
-		authtoken = resp.Header.Get("X-Spotty-Access-Token")
+		for {
+			select {
+			case update := <-updates:
+				// if intInStringSlice(int(update.Message.From.ID), admins) {
 
-		if resp.StatusCode != 200 || authtoken == "" {
-			return "", nil
+				// Text := update.Message.Text
+				// Command := update.Message.Command()
+				// Args := update.Message.CommandArguments()
+
+				// msg := tgbotapi.NewMessage(int64(update.Message.From.ID), "")
+
+				sendStats(bot, int64(update.Message.From.ID))
+				// }
+			}
 		}
-		token = authtoken
 	}
-
-	return authtoken, nil
 }
 
-func getPets(reauth bool) (pets []pet) {
-	if token == "" {
-		authtoken, err := doAuth("", "")
-		if err != nil || authtoken == "" {
-			log.Println(err)
-			return
-		} else {
-			log.Println("got token", authtoken)
+func sendStats(bot *tgbotapi.BotAPI, userID int64) {
+	msg := tgbotapi.NewMessage(userID, "")
+
+	result := ""
+	pets := getPets(false)
+	if len(pets) > 0 {
+		for index := range pets {
+			petData := pets[index]
+			petActivity := getActivity(petData.ID, false)
+
+			// result = fmt.Sprintf("PetID: %d\nSteps: %d\nActivity: %d/%d\nDistance: %.3fm\nBattery: %d%%", petActivity.PetID, petActivity.CurrentEnergy, petActivity.CurrentActivity, petActivity.PetActivityAim, float64(petActivity.CurrentDistance)/1000, petActivity.BatteryCharge)
+			result = fmt.Sprintf("Activity: %d/%d\nSteps: %d\nDistance: %.3fm\nBattery: %d%%", petActivity.CurrentActivity, petActivity.PetActivityAim, petActivity.CurrentEnergy, float64(petActivity.CurrentDistance)/1000, petActivity.BatteryCharge)
 		}
-	} else {
-		// log.Println
 	}
-	client := &http.Client{}
-	req, _ := http.NewRequest("GET", "https://api2.mishiko.intech-global.com/devpet/list?timezone=3", nil)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-SPOTTY-AUTH-NEW", "X-SPOTTY-AUTH-NEW")
-	req.Header.Set("X-SPOTTY-ACCESS-TOKEN", token)
-	resp, err := client.Do(req)
-	defer resp.Body.Close()
 
-	if err != nil {
-		log.Println(err)
-		return
-	}
-	if resp.StatusCode == 401 {
-		if reauth {
-			return
+	petsLocation := getPetsLocations(false)
+	if len(petsLocation.Pets) > 0 {
+		for index := range petsLocation.Pets {
+			petData := petsLocation.Pets[index]
+
+			// result += fmt.Sprintf("\nPetID: %d\nLat: %.6f\nLon: %.6f\nAlt: %.2f\nAccuracy: %.2f\nDate: %s\nSos: %d", petData.ID, petData.Lat, petData.Lon, petData.Alt, petData.Accuracy, time.Unix(petData.Date/1000, 0), petData.SosModeTime)
+			timeData := time.Unix(petData.Date/1000, 0)
+			result += fmt.Sprintf("\nLocation: %.6f, %.6f (±%.2fm)\nUpdated: %s", petData.Lat, petData.Lon, petData.Accuracy, timeData.UTC().Format("01.14.2006 15:04:05"))
+
+			if petData.Lat != 0.0 && petData.Lon != 0.0 {
+				location := tgbotapi.NewLocation(userID, petData.Lat, petData.Lon)
+				bot.Send(location)
+			}
 		}
-
-		token, err = doAuth(login, password)
-		if err != nil || token == "" {
-			log.Println(err)
-			return
-		}
-
-		return getPets(true)
 	}
 
-	body, _ := ioutil.ReadAll(resp.Body)
-	err = json.Unmarshal(body, &pets)
-	if err != nil {
-		log.Println(err, string(body))
-	}
-	return
+	msg.Text = result
+
+	// if userID == -1 {
+	// 	for _, id := range admins {
+	// 		userID, _ = strconv.ParseInt(id, 10, 64)
+	// 		msg.ChatID = userID
+	// 		bot.Send(msg)
+	// 	}
+	// } else {
+	bot.Send(msg)
+
+	// }
 }
 
-func getActivity(petID int, reauth bool) (activityData activity) {
-	if token == "" {
-		authtoken, err := doAuth(login, password)
-		if err != nil || authtoken == "" {
-			log.Println(err)
-			return
-		} else {
-			log.Println("got token", authtoken)
-		}
-	}
-
-	client := &http.Client{}
-	req, _ := http.NewRequest("GET", "https://api2.mishiko.intech-global.com/devpet/"+strconv.Itoa(petID)+"/main_data?timezone=3", nil)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-SPOTTY-AUTH-NEW", "X-SPOTTY-AUTH-NEW")
-	req.Header.Set("X-SPOTTY-ACCESS-TOKEN", token)
-	resp, err := client.Do(req)
-	defer resp.Body.Close()
-
-	if err != nil {
-		log.Println(err)
-		return
-	}
-	if resp.StatusCode == 401 {
-		if reauth {
-			return
-		}
-
-		token, err = doAuth(login, password)
-		if err != nil || token == "" {
-			log.Println(err)
-			return
-		}
-
-		return getActivity(petID, true)
-	}
-
-	body, _ := ioutil.ReadAll(resp.Body)
-	err = json.Unmarshal(body, &activityData)
-	if err != nil {
-		log.Println(err, string(body))
-	}
-	return
-}
-
-func getPetsLocations(reauth bool) (locations locations) {
-	if token == "" {
-		authtoken, err := doAuth("", "")
-		if err != nil || authtoken == "" {
-			log.Println(err)
-			return
-		} else {
-			log.Println("got token", authtoken)
-		}
-	} else {
-		// log.Println
-	}
-	client := &http.Client{}
-	req, _ := http.NewRequest("GET", "https://api2.mishiko.intech-global.com/devpet/locations", nil)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-SPOTTY-AUTH-NEW", "X-SPOTTY-AUTH-NEW")
-	req.Header.Set("X-SPOTTY-ACCESS-TOKEN", token)
-	resp, err := client.Do(req)
-	defer resp.Body.Close()
-
-	if err != nil {
-		log.Println(err)
-		return
-	}
-	if resp.StatusCode == 401 {
-		if reauth {
-			return
-		}
-
-		token, err = doAuth(login, password)
-		if err != nil || token == "" {
-			log.Println(err)
-			return
-		}
-
-		return getPetsLocations(true)
-	}
-
-	body, _ := ioutil.ReadAll(resp.Body)
-	err = json.Unmarshal(body, &locations)
-	if err != nil {
-		log.Println(err, string(body))
-	}
-	return
-}
+// func intInStringSlice(a int, list []string) bool {
+// 	b := strconv.Itoa(a)
+// 	for _, c := range list {
+// 		if b == c {
+// 			return true
+// 		}
+// 	}
+// 	return false
+// }
