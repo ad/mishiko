@@ -113,7 +113,7 @@ func getActivity(petID int, reauth bool) (activityData activity) {
 	if err != nil {
 		log.Println(err, string(body))
 	} else {
-		if activityData.BatteryCharge < 0 {
+		if activityData.BatteryCharge < 0 && activityData.BatteryCharge != 100 {
 			activityData.Charging = true
 		}
 	}
