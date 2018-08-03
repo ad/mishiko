@@ -12,6 +12,7 @@ type activity struct {
 	PetActivityAim   int    `json:"petActivityAim"`
 	PetAvatarPath    string `json:"petAvatarPath"`
 	BatteryCharge    int    `json:"batteryCharge"`
+	Charging         bool   `json:"charging"`
 	SubscriptionDate string `json:"subscriptionDate"`
 	CurrentEnergy    int    `json:"currentEnergy"`
 	CurrentActivity  int    `json:"currentActivity"`

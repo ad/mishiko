@@ -112,6 +112,10 @@ func getActivity(petID int, reauth bool) (activityData activity) {
 	err = json.Unmarshal(body, &activityData)
 	if err != nil {
 		log.Println(err, string(body))
+	} else {
+		if activityData.BatteryCharge < 0 {
+			activityData.Charging = true
+		}
 	}
 	return
 }

@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"math"
 	"time"
 
 	tgbotapi "gopkg.in/telegram-bot-api.v4"
@@ -78,9 +79,13 @@ func sendStats(bot *tgbotapi.BotAPI, userID int64) {
 		for index := range pets {
 			petData := pets[index]
 			petActivity := getActivity(petData.ID, false)
-
+			charging := ""
+			if petActivity.Charging {
+				charging = " (charging)"
+				petActivity.BatteryCharge = int(math.Abs(float64(petActivity.BatteryCharge)))
+			}
 			// result = fmt.Sprintf("PetID: %d\nSteps: %d\nActivity: %d/%d\nDistance: %.3fm\nBattery: %d%%", petActivity.PetID, petActivity.CurrentEnergy, petActivity.CurrentActivity, petActivity.PetActivityAim, float64(petActivity.CurrentDistance)/1000, petActivity.BatteryCharge)
-			result = fmt.Sprintf("Activity: %d/%d\nSteps: %d\nDistance: %.3fm\nBattery: %d%%", petActivity.CurrentActivity, petActivity.PetActivityAim, petActivity.CurrentEnergy, float64(petActivity.CurrentDistance)/1000, petActivity.BatteryCharge)
+			result = fmt.Sprintf("Activity: %d/%d\nSteps: %d\nDistance: %.3fm\nBattery: %d%%%s", petActivity.CurrentActivity, petActivity.PetActivityAim, petActivity.CurrentEnergy, float64(petActivity.CurrentDistance)/1000, petActivity.BatteryCharge, charging)
 		}
 	}
 
