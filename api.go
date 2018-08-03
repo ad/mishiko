@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io/ioutil"
 	"log"
+	"math"
 	"net/http"
 	"strconv"
 )
@@ -116,6 +117,7 @@ func getActivity(petID int, reauth bool) (activityData activity) {
 		if activityData.BatteryCharge < 0 && activityData.BatteryCharge != -100 {
 			activityData.Charging = true
 		}
+		activityData.BatteryCharge = int(math.Abs(float64(activityData.BatteryCharge)))
 	}
 	return
 }
